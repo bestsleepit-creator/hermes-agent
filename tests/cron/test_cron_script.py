@@ -156,6 +156,26 @@ class TestRunJobScript:
         assert success is False
         assert "timed out" in output.lower()
 
+
+    def test_script_timeout_can_be_disabled(self, cron_env, monkeypatch):
+        from cron import scheduler as sched_mod
+        from cron.scheduler import _get_script_timeout
+
+        monkeypatch.setattr(sched_mod, "_SCRIPT_TIMEOUT", 0)
+        assert _get_script_timeout() is None
+
+    def test_script_timeout_coerces_disable_aliases(self):
+        from cron.scheduler import _coerce_script_timeout
+
+        for value in (0, -1, "0", "-1", "none", "false", "off", "disabled"):
+            assert _coerce_script_timeout(value) is None
+
+    def test_script_timeout_coerces_default_aliases(self):
+        from cron.scheduler import _DEFAULT_SCRIPT_TIMEOUT, _coerce_script_timeout
+
+        for value in (None, "", "default"):
+            assert _coerce_script_timeout(value) == _DEFAULT_SCRIPT_TIMEOUT
+
     def test_script_json_output(self, cron_env):
         """Scripts can output structured JSON for the LLM to parse."""
         from cron.scheduler import _run_job_script

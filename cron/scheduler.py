@@ -921,12 +921,30 @@ _DEFAULT_SCRIPT_TIMEOUT = 120  # seconds
 _SCRIPT_TIMEOUT = _DEFAULT_SCRIPT_TIMEOUT
 
 
-def _get_script_timeout() -> int:
-    """Resolve cron pre-run script timeout from module/env/config with a safe default."""
+def _coerce_script_timeout(value) -> int | None:
+    """Return seconds, or None when timeout is explicitly disabled."""
+    if value is None:
+        return _DEFAULT_SCRIPT_TIMEOUT
+    if isinstance(value, str):
+        raw = value.strip().lower()
+        if raw in {"", "default"}:
+            return _DEFAULT_SCRIPT_TIMEOUT
+        if raw in {"none", "no", "false", "off", "disabled"}:
+            return None
+        timeout = int(float(raw))
+    else:
+        timeout = int(float(value))
+    if timeout <= 0:
+        return None
+    return timeout
+
+
+def _get_script_timeout() -> int | None:
+    """Resolve cron script timeout. Returns None when disabled by env/config."""
     if _SCRIPT_TIMEOUT != _DEFAULT_SCRIPT_TIMEOUT:
         try:
-            timeout = int(float(_SCRIPT_TIMEOUT))
-            if timeout > 0:
+            timeout = _coerce_script_timeout(_SCRIPT_TIMEOUT)
+            if timeout is None or timeout > 0:
                 return timeout
         except Exception:
             logger.warning("Invalid patched _SCRIPT_TIMEOUT=%r; using env/config/default", _SCRIPT_TIMEOUT)
@@ -934,8 +952,8 @@ def _get_script_timeout() -> int:
     env_value = os.getenv("HERMES_CRON_SCRIPT_TIMEOUT", "").strip()
     if env_value:
         try:
-            timeout = int(float(env_value))
-            if timeout > 0:
+            timeout = _coerce_script_timeout(env_value)
+            if timeout is None or timeout > 0:
                 return timeout
         except Exception:
             logger.warning("Invalid HERMES_CRON_SCRIPT_TIMEOUT=%r; using config/default", env_value)
@@ -945,8 +963,8 @@ def _get_script_timeout() -> int:
         cron_cfg = cfg.get("cron", {}) if isinstance(cfg, dict) else {}
         configured = cron_cfg.get("script_timeout_seconds")
         if configured is not None:
-            timeout = int(float(configured))
-            if timeout > 0:
+            timeout = _coerce_script_timeout(configured)
+            if timeout is None or timeout > 0:
                 return timeout
     except Exception as exc:
         logger.debug("Failed to load cron script timeout from config: %s", exc)
@@ -1076,7 +1094,8 @@ def _run_job_script(script_path: str) -> tuple[bool, str]:
         return True, stdout
 
     except subprocess.TimeoutExpired:
-        return False, f"Script timed out after {script_timeout}s: {path}"
+        timeout_label = "disabled" if script_timeout is None else f"{script_timeout}s"
+        return False, f"Script timed out after {timeout_label}: {path}"
     except Exception as exc:
         return False, f"Script execution failed: {exc}"
 
