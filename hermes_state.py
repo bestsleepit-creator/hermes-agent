@@ -734,6 +734,12 @@ class SessionDB:
                 )
                 self._conn.row_factory = sqlite3.Row
                 apply_wal_with_fallback(self._conn, db_label="state.db")
+                # macOS: the default fsync() does NOT flush the drive's write
+                # cache, so an interrupted WAL checkpoint can leave a torn page
+                # in the main DB (observed: messages btree frontier corruption,
+                # 2026-06). fullfsync makes SQLite use F_FULLFSYNC so checkpoint
+                # writes are durably persisted. No-op on non-Apple platforms.
+                self._conn.execute("PRAGMA fullfsync=ON")
                 self._conn.execute("PRAGMA foreign_keys=ON")
                 self._init_schema()
 
